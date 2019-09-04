@@ -34,6 +34,10 @@ get
 
 tells the server to send the next message the client hasn't seen. the server sends "empty" if none are found
 
+users
+
+sends the client a list of users in the current room
+
 leave
 
 exits the current room, but leaves the user online, able to join another room
