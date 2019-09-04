@@ -1,10 +1,18 @@
 package shroudserver.net;
 
+/**
+ * Represents client requests to the server
+ */
 public class Request {
-    public enum Method {GET, EXIT, SEND, JOIN, CREATE, LEAVE};
-    private Method method;
-    private String argument;
+    public enum Method {GET, EXIT, SEND, JOIN, CREATE, LEAVE, USERS};
+    private Method method; // the method used by this request
+    private String argument; // the argument given to the request
 
+    /**
+     * Creates a request from a string
+     * @param request The request as a string
+     * @throws InvalidRequestException If the request isn't recognized, or doesn't have proper arguments
+     */
     public Request(String request) throws InvalidRequestException {
         String[] fields = request.split(" ");
         String methodString = fields[0];
@@ -40,12 +48,15 @@ public class Request {
             case "leave": // no args
                 this.method = Method.LEAVE;
                 break;
+            case "users": // no args
+                this.method = Method.USERS;
+                break;
             default:
                 throw new InvalidRequestException();
         }
 
         // check that if arguments are needed, they are there
-        if((this.method != Method.GET && this.method != Method.EXIT && this.method != Method.LEAVE) && this.argument == "") {
+        if((this.method != Method.GET && this.method != Method.EXIT && this.method != Method.LEAVE && this.method != Method.USERS) && this.argument == "") {
             throw new InvalidRequestException();
         }
 

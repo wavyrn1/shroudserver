@@ -8,15 +8,23 @@ import java.io.DataOutputStream;
 import java.io.DataInputStream;
 import java.util.ArrayList;
 
+/**
+ * Represents the client handler for each client
+ */
 public class ClientHandler extends Thread {
-    private Socket sock;
-    private DataInputStream dis;
-    private DataOutputStream dos;
-    private User user;
-    private ArrayList<String> inbox;
-    private boolean isClosed;
-    private boolean inRoom;
+    private Socket sock; // the socket to communicate with the client
+    private DataInputStream dis; // the input stream to read from the client
+    private DataOutputStream dos; // the output stream to write to the client
+    private User user; // the user this client is acting as
+    private ArrayList<String> inbox; // messages to send the user
+    private boolean isClosed; // if this handler is closed
+    private boolean inRoom; // if the user is currently in a room
 
+    /**
+     * Creates a new Client handler
+     * @param sock A socket returned from java.net.ServerSocket.accept()
+     * @throws IOException If there's an issue establishing communications
+     */
     public ClientHandler(Socket sock) throws IOException {
         this.sock = sock;
         this.dis = new DataInputStream(this.sock.getInputStream());
@@ -27,10 +35,18 @@ public class ClientHandler extends Thread {
         this.inRoom = false;
     }
 
+    /**
+     * Adds a message to this handler's inbox
+     * @param message The message to add to the handler
+     */
     public synchronized void addToInbox(String message) {
         this.inbox.add(message);
     }
 
+    /**
+     * Grabs the oldest message in the inbox and removes it from the inbox
+     * @return The oldest message in the inbox
+     */
     private synchronized String getMessage() {
         try {
             String message = this.inbox.get(0);
@@ -42,6 +58,9 @@ public class ClientHandler extends Thread {
         }
     }
 
+    /**
+     * Closes this handler
+     */
     private synchronized void close() {
         this.isClosed = true;
         try {
@@ -54,6 +73,10 @@ public class ClientHandler extends Thread {
         }
     }
 
+    /**
+     * Reads a line from the input stream
+     * @return A line of text from the client. Closes the handler if this fails
+     */
     private String read() {
         String buffer = "";
         char current = ' ';
@@ -70,6 +93,10 @@ public class ClientHandler extends Thread {
         return buffer;
     }
 
+    /**
+     * Sends a line of data to the client. Closes the handler if this fails
+     * @param data Data to send to the client
+     */
     private void send(String data) {
         data = data.replace("\n", "") + "\n";
         try {
@@ -80,17 +107,33 @@ public class ClientHandler extends Thread {
         }
     }
 
+    /**
+     * Creates a new room and runs its thread.
+     * @param roomName The name of the room
+     * @param roomPassword The password to encrypt this room with. Currently sent in cleartext, but that will be fixed before launch
+     * @throws RoomInUseException If there's already a room with that name.
+     */
     private synchronized void createRoom(String roomName, String roomPassword) throws RoomInUseException {
         Room newRoom = new Room(roomName, roomPassword, this.user);
         newRoom.start();
         this.inRoom = true;
     }
 
+    /**
+     * Starts the process of listening for the client's username.
+     */
     private synchronized void createUser() {
         String username = this.read();
         this.user =  new User(username, this);
     }
 
+    /**
+     * Joins a room
+     * @param roomName name of the room to join
+     * @param validation "join " + this client's username, encrypted with the shroudserver.crypto package
+     * @throws InvalidPasswordException If the validation fails
+     * @throws NoRoomFoundException If no room with that name is found
+     */
     private synchronized void joinRoom(String roomName, String validation) throws InvalidPasswordException, NoRoomFoundException {
         Room roomToJoin = Room.getRoomByName(roomName);
         roomToJoin.addUser(this.user, validation);
@@ -104,6 +147,8 @@ public class ClientHandler extends Thread {
         Request currentRequest = null;
         String roomRequestString;
         Request roomRequest = null;
+        // only accept requests to join or create rooms while not in a room
+        // only accept room commands while in a room
         while(!this.isClosed) {
             while(!this.inRoom) {
                 roomRequestString = this.read();
@@ -115,7 +160,7 @@ public class ClientHandler extends Thread {
                 catch(InvalidRequestException e) {
                     this.send("invalid request");
                 }
-
+                // whitelist the acceptable requests while not in a room
                 switch(roomRequest.getMethod()) {
                     case EXIT:
                     case JOIN:
@@ -135,12 +180,13 @@ public class ClientHandler extends Thread {
             catch(InvalidRequestException e) {
                 this.send("invalid request");
             }
-
+            // whitelist the acceptable requests while in a room
             switch(currentRequest.getMethod()) {
                 case GET:
                 case SEND:
                 case LEAVE:
                 case EXIT:
+                case USERS:
                     this.executeRequest(roomRequest);
                     break;
                 default:
@@ -149,20 +195,22 @@ public class ClientHandler extends Thread {
         }
     }
 
-    // methods to execute Requests
-
+    /**
+     * Executes a request.
+     * @param request The request to execute
+     */
     private synchronized void executeRequest(Request request) {
         String roomName;
         switch(request.getMethod()) {
-            case GET:
+            case GET: // "get" -- returns the oldest stored message
                 String message = this.getMessage();
                 this.send(message);
                 break;
-            case EXIT:
+            case EXIT: // "exit" -- closes this handler, presumably exiting the program
                 this.user.close();
                 this.close();
                 break;
-            case JOIN:
+            case JOIN: // "join <room name> <validation>" joins the room listed, if available
                 roomName = request.getArgument().split(" ")[0];
                 String validation = request.getArgument().split(" ")[1];
                 try {
@@ -178,15 +226,17 @@ public class ClientHandler extends Thread {
                     this.send("invalid password");
                     return;
                 }
+                this.inRoom = true;
                 break;
-            case SEND:
+            case SEND: // "send <message"> -- sends message to room
                 this.user.sendToRoom(request.getArgument());
                 break;
-            case CREATE:
+            case CREATE: // "create <room name> <password> -- creates a room with name, using password. Sends password through cleartext -- will be fixed by release
                 roomName = request.getArgument().split(" ")[0];
                 String password = request.getArgument().split(" ")[1];
                 try {
                     this.createRoom(roomName, password);
+                    this.inRoom = true;
                 }
 
                 catch(RoomInUseException e) {
@@ -194,9 +244,13 @@ public class ClientHandler extends Thread {
                     return;
                 }
                 break;
-            case LEAVE:
+            case LEAVE: // "leave" -- leaves the current room
                 this.user.close();
                 this.inRoom = false;
+                break;
+            case USERS: // "users" -- sends a list of users in the same channel to the client
+                this.send(this.user.getRoom().getUserList());
+                break;
         }
     }
 }

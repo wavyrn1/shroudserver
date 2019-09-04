@@ -158,4 +158,17 @@ public class Room extends Thread {
         }
         throw new NoRoomFoundException();
     }
+
+    /**
+     * Returns a string representation of all the users on the room.
+     * @return A list of users online
+     */
+    public String getUserList() {
+        String userlist = "";
+        for(User eachUser : this.users) {
+            userlist += eachUser.getName() + " ";
+        }
+        userlist = userlist.substring(0, userlist.length() - 1);
+        return userlist;
+    }
 }

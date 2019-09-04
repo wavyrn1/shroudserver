@@ -1,5 +1,8 @@
 package shroudserver.crypto;
 
+/**
+ * placeholder class
+ */
 public class Ciphertext {
     public Ciphertext(String cipher) {
 
